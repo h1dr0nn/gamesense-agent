@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft,
   FileText,
   Trash2,
   Pause,
@@ -19,10 +18,6 @@ import { toast } from "sonner";
 import { Select } from "./ui/Select";
 import { useDevices } from "../hooks/useDevices";
 
-interface LogcatViewProps {
-  onBack: () => void;
-}
-
 type LogLevel = "V" | "D" | "I" | "W" | "E";
 
 interface LogLine {
@@ -31,7 +26,7 @@ interface LogLine {
   level: LogLevel;
 }
 
-export function LogcatView({ onBack }: LogcatViewProps) {
+export function LogcatView() {
   const { devices } = useDevices();
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [paused, setPaused] = useState(false);
@@ -40,6 +35,8 @@ export function LogcatView({ onBack }: LogcatViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [maxLines, setMaxLines] = useState(1000);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [foregroundOnly, setForegroundOnly] = useState(true);
+  const [foregroundPkg, setForegroundPkg] = useState("");
 
   const logsEndRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -81,6 +78,22 @@ export function LogcatView({ onBack }: LogcatViewProps) {
       });
     }
   }, [paused, maxLines]);
+
+  // Poll foreground app when toggle is on
+  useEffect(() => {
+    if (!foregroundOnly || !selectedDevice) {
+      setForegroundPkg("");
+      return;
+    }
+    const fetch = () => {
+      invoke<string>("get_foreground_app", { deviceId: selectedDevice })
+        .then((pkg) => { if (pkg) setForegroundPkg(pkg); })
+        .catch(() => {});
+    };
+    fetch();
+    const interval = setInterval(fetch, 2000);
+    return () => clearInterval(interval);
+  }, [foregroundOnly, selectedDevice]);
 
   // Set initial device if not set
   useEffect(() => {
@@ -224,9 +237,11 @@ export function LogcatView({ onBack }: LogcatViewProps) {
       const matchesSearch =
         searchQuery.trim() === "" ||
         line.text.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchesLevel && matchesSearch;
+      const matchesPkg =
+        !foregroundOnly || !foregroundPkg || line.text.includes(foregroundPkg);
+      return matchesLevel && matchesSearch && matchesPkg;
     });
-  }, [logLines, logLevel, searchQuery]);
+  }, [logLines, logLevel, searchQuery, foregroundOnly, foregroundPkg]);
 
   useEffect(() => {
     if (!paused && isAtBottomRef.current && logsEndRef.current) {
@@ -316,16 +331,7 @@ export function LogcatView({ onBack }: LogcatViewProps) {
     >
       {/* Header */}
       <div className="flex items-center gap-4 mb-4">
-        <button
-          onClick={onBack}
-          className="p-2.5 rounded-xl hover:bg-surface-elevated text-text-secondary hover:text-text-primary transition-all duration-200 border border-transparent hover:border-border"
-        >
-          <ArrowLeft size={22} />
-        </button>
         <div className="flex-1 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center">
-            <FileText className="text-accent" size={20} />
-          </div>
           <div>
             <h2 className="text-xl font-bold text-text-primary">
               Logcat Viewer
@@ -428,23 +434,41 @@ export function LogcatView({ onBack }: LogcatViewProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mr-2">
-            Minimum Level:
-          </span>
-          {logLevels.map((level) => (
-            <button
-              key={level.value}
-              onClick={() => setLogLevel(level.value)}
-              className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
-                logLevel === level.value
-                  ? "bg-accent text-white shadow-sm"
-                  : `bg-surface-card ${level.color} border border-border/50 hover:bg-surface-card-hover`
-              }`}
-            >
-              {level.label}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-bold text-text-muted uppercase tracking-wider mr-2">
+              Minimum Level:
+            </span>
+            {logLevels.map((level) => (
+              <button
+                key={level.value}
+                onClick={() => setLogLevel(level.value)}
+                className={`px-3 py-1 rounded-md text-[11px] font-bold transition-all ${
+                  logLevel === level.value
+                    ? "bg-accent text-white shadow-sm"
+                    : `bg-surface-card ${level.color} border border-border/50 hover:bg-surface-card-hover`
+                }`}
+              >
+                {level.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => setForegroundOnly(!foregroundOnly)}
+            disabled={!selectedDevice}
+            className={`flex items-center gap-2 px-3 py-1 rounded-md text-[11px] font-bold border transition-all disabled:opacity-40 ${
+              foregroundOnly
+                ? "bg-accent text-white border-accent"
+                : "bg-surface-card text-text-muted border-border/50 hover:text-text-primary"
+            }`}
+          >
+            <Smartphone size={11} />
+            Foreground app only
+            {foregroundOnly && foregroundPkg && (
+              <span className="opacity-70 font-mono normal-case">({foregroundPkg})</span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -454,7 +478,7 @@ export function LogcatView({ onBack }: LogcatViewProps) {
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-auto font-mono text-[11px] bg-[#0c0c0c] border border-border rounded-xl p-4 custom-scrollbar selection:bg-accent/30"
+          className="flex-1 overflow-auto font-mono text-[11px] bg-surface-elevated border border-border rounded-xl p-4 custom-scrollbar selection:bg-accent/30"
         >
         {selectedDevice ? (
           filteredLogs.length > 0 ? (

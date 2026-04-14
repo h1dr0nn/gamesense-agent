@@ -5,10 +5,10 @@ import {
     Info, Trash2, Power, Keyboard, FileInput, Package, Plus
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { DeviceInfo, ApkInfo } from '../types';
+import { DeviceInfo } from '../types';
 import { RequirementChecklist } from './RequirementChecklist';
 import { ActionRequirementsChecklist } from './ActionRequirementsChecklist';
-import { InstallButton } from './InstallButton';
+import { InstallApkModal } from './modals/InstallApkModal';
 import { DeviceInfoModal } from './modals/DeviceInfoModal';
 import { RebootModal } from './modals/RebootModal';
 import { InputTextModal } from './modals/InputTextModal';
@@ -22,14 +22,13 @@ interface DeviceListProps {
     devices: DeviceInfo[];
     loading: boolean;
     error: string | null;
-    apkInfo: ApkInfo | null;
     onRefresh: () => void;
     onDeviceSelect?: (device: DeviceInfo) => void;
     onRemove?: (deviceId: string) => void;
     onAddDevice?: () => void;
 }
 
-export function DeviceList({ devices, loading, error, apkInfo, onRefresh, onDeviceSelect, onRemove, onAddDevice }: DeviceListProps) {
+export function DeviceList({ devices, loading, error, onRefresh, onDeviceSelect, onRemove, onAddDevice }: DeviceListProps) {
     const prevDevicesRef = useRef<DeviceInfo[]>([]);
     const { t } = useLanguage();
 
@@ -174,7 +173,6 @@ export function DeviceList({ devices, loading, error, apkInfo, onRefresh, onDevi
                         <DeviceCard
                             key={device.id}
                             device={device}
-                            apkInfo={apkInfo}
                             onSelect={onDeviceSelect}
                             onRemove={onRemove}
                         />
@@ -187,7 +185,6 @@ export function DeviceList({ devices, loading, error, apkInfo, onRefresh, onDevi
 
 interface DeviceCardProps {
     device: DeviceInfo;
-    apkInfo: ApkInfo | null;
     onSelect?: (device: DeviceInfo) => void;
     onRemove?: (deviceId: string) => void;
 }
@@ -195,11 +192,12 @@ interface DeviceCardProps {
 type ActionType = 'info' | 'uninstall' | 'reboot' | 'input' | 'file' | null;
 type ChecklistType = 'requirements' | 'actions' | null;
 
-function DeviceCard({ device, apkInfo, onSelect, onRemove }: DeviceCardProps) {
+function DeviceCard({ device, onSelect, onRemove }: DeviceCardProps) {
     const { t } = useLanguage();
     const { getStatusTranslation } = useDeviceStatus();
     const [activeAction, setActiveAction] = useState<ActionType>(null);
     const [expandedChecklist, setExpandedChecklist] = useState<ChecklistType>(null);
+    const [showInstall, setShowInstall] = useState(false);
 
     const getStatusColor = () => {
         switch (device.status) {
@@ -344,36 +342,17 @@ function DeviceCard({ device, apkInfo, onSelect, onRemove }: DeviceCardProps) {
                     <span>Files</span>
                 </button>
 
-                {/* 6. Install (Special logic) */}
-                {apkInfo && !isOffline ? (
-                    <InstallButton
-                        deviceId={device.id}
-                        apkPath={apkInfo.path}
-                        customRender={(onClick, loading) => (
-                            <button
-                                onClick={onClick}
-                                disabled={loading || device.status !== 'Device'}
-                                // Uses specialized style for Install (Accent filled)
-                                className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 text-xs font-medium h-9
-                                    ${loading ? 'bg-surface-elevated text-text-muted border-transparent cursor-wait' : 'bg-accent text-white border-accent shadow-lg shadow-accent/20 hover:bg-accent-secondary hover:border-accent-secondary hover:scale-[1.02]'}
-                                `}
-                            >
-                                {loading ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-                                <span>{loading ? t.btnInstalling : t.btnInstall}</span>
-                            </button>
-                        )}
-                    />
-                ) : (
-                    // Placeholder Disabled Install Button
-                    <button
-                        disabled
-                        className={`${actionBtnBase} ${actionBtnDisabled}`}
-                        title={isOffline ? t.deviceOffline : t.selectApkToEnable}
-                    >
-                        <Package size={16} />
-                        <span>{t.btnInstall}</span>
-                    </button>
-                )}
+                {/* 6. Install */}
+                <button
+                    onClick={() => setShowInstall(true)}
+                    disabled={isOffline}
+                    className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-all duration-200 text-xs font-medium h-9
+                        ${!isOffline ? 'bg-accent text-white border-accent shadow-lg shadow-accent/20 hover:bg-accent/90 hover:scale-[1.02]' : `${actionBtnBase} ${actionBtnDisabled}`}
+                    `}
+                >
+                    <Package size={16} />
+                    <span>{t.btnInstall}</span>
+                </button>
             </div>
 
             {/* Modals for Actions */}
@@ -391,6 +370,9 @@ function DeviceCard({ device, apkInfo, onSelect, onRemove }: DeviceCardProps) {
             )}
             {activeAction === 'file' && (
                 <FileTransferModal deviceId={device.id} onClose={() => setActiveAction(null)} />
+            )}
+            {showInstall && (
+                <InstallApkModal device={device} onClose={() => setShowInstall(false)} />
             )}
         </motion.div>
     );

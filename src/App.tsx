@@ -4,50 +4,41 @@ import { MirrorWindow } from './components/modals/MirrorWindow';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { useDevices } from './hooks/useDevices';
-import { useApk } from './hooks/useApk';
-import { Sidebar } from './components/Sidebar';
+import { NavRail } from './components/NavRail';
+import type { NavView } from './components/NavRail';
 import { DeviceList } from './components/DeviceList';
 import { Settings } from './components/Settings';
 import { LogcatView } from './components/LogcatView';
-import { TerminalView } from './components/TerminalView';
 import { DeviceDetailView } from './components/DeviceDetailView';
+import { AgentTab } from './components/agent/AgentTab';
 import { ManualConnectModal } from './components/modals/ManualConnectModal';
-import { useLanguage } from './contexts/LanguageContext';
 import { useTheme } from './contexts/ThemeContext';
+import { TitleBar } from './components/TitleBar';
 import { DeviceProvider } from './contexts/DeviceContext';
 import { DeviceCacheProvider } from './contexts/DeviceCacheContext';
-import type { ActiveToolView } from './components/ToolsPanel';
 import type { DeviceInfo } from './types';
 
-// Inner App Component that uses hooks
 function AppContent() {
-  const { devices, adbStatus, loading, error, refreshDevices, removeDevice } = useDevices();
-  const { apkInfo, selectApk, clearApk, scanFolder, setApkFromList } = useApk();
-  const [showSettings, setShowSettings] = useState(false);
-  const [showManualConnect, setShowManualConnect] = useState(false);
-  const [activeToolView, setActiveToolView] = useState<ActiveToolView>(null);
+  const { devices, loading, error, refreshDevices, removeDevice } = useDevices();
+  const [activeView, setActiveView] = useState<NavView>('devices');
   const [selectedDevice, setSelectedDevice] = useState<DeviceInfo | null>(null);
-  const { t } = useLanguage();
+  const [showManualConnect, setShowManualConnect] = useState(false);
+  const [agentDevice, setAgentDevice] = useState<DeviceInfo | null>(null);
   const { resolvedTheme } = useTheme();
 
-  const handleOpenToolView = (view: ActiveToolView) => {
-    setShowSettings(false);
+  const handleNavigate = (view: NavView) => {
+    setActiveView(view);
     setSelectedDevice(null);
-    setActiveToolView(view);
-  };
-
-  const handleCloseToolView = () => {
-    setActiveToolView(null);
   };
 
   const handleDeviceSelect = (device: DeviceInfo) => {
-    setShowSettings(false);
-    setActiveToolView(null);
     setSelectedDevice(device);
+    setActiveView('devices');
   };
 
-  const handleDeviceDetailBack = () => {
-    setSelectedDevice(null);
+  const getViewKey = () => {
+    if (selectedDevice) return `device-${selectedDevice.id}`;
+    return activeView;
   };
 
   return (
@@ -60,133 +51,61 @@ function AppContent() {
         }}
       />
 
-      {/* Header - Full Width */}
-      <motion.header
-        className="sticky top-0 z-50 w-full backdrop-blur-md bg-surface-bg/80 border-b border-border px-6 py-4"
-        initial={{ y: -20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.4 }}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src="/icon.png"
-              alt="GameSense Agent"
-              className="w-12 h-12 rounded-xl shadow-lg"
-            />
-            <div className="mt-1">
-              <h1 className="text-xl font-bold text-text-primary leading-tight">{t.appName}</h1>
-              <span className="text-xs text-text-muted font-mono">{t.version}</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4">
-            {/* ADB Status in Header */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${adbStatus?.available ? 'bg-success/10 border-success/20' : 'bg-error/10 border-error/20'}`}>
-              <div className={`w-2 h-2 rounded-full ${adbStatus?.available ? 'bg-success shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-error'}`} />
-              <span className="text-sm font-medium text-text-primary">
-                {adbStatus?.available ? (adbStatus.version || 'ADB Ready') : 'ADB Not Found'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </motion.header>
+      <TitleBar />
 
       <div className="flex-1 flex min-h-0">
-        {/* Sidebar - Fixed Left */}
-        <Sidebar
-          apkInfo={apkInfo}
-          onSelectApk={selectApk}
-          onClearApk={clearApk}
-          onScanApk={scanFolder}
-          onSelectApkFromList={setApkFromList}
-          onOpenSettings={() => { setShowSettings(true); setActiveToolView(null); setSelectedDevice(null); }}
-          onOpenToolView={handleOpenToolView}
-        />
+        <NavRail activeView={activeView} onNavigate={handleNavigate} />
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Dynamic Content */}
-          <div className="flex-1 overflow-hidden relative px-8 py-6">
-            <AnimatePresence mode="wait">
-              {showSettings ? (
-                <motion.div
-                  key="settings"
-                  className="h-full"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <Settings onBack={() => setShowSettings(false)} />
-                </motion.div>
-              ) : activeToolView === 'logcat' ? (
-                <motion.div
-                  key="logcat"
-                  className="h-full"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <LogcatView onBack={handleCloseToolView} />
-                </motion.div>
-              ) : activeToolView === 'terminal' ? (
-                <motion.div
-                  key="terminal"
-                  className="h-full"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <TerminalView onBack={handleCloseToolView} />
-                </motion.div>
-              ) : selectedDevice ? (
-                <motion.div
-                  key="device-detail"
-                  className="h-full"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <DeviceDetailView device={selectedDevice} onBack={handleDeviceDetailBack} />
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="main"
-                  className="h-full flex flex-col"
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.98 }}
-                  transition={{ duration: 0.2 }}
-                >
-                  <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
-                    <DeviceList
-                      devices={devices}
-                      loading={loading}
-                      error={error}
-                      apkInfo={apkInfo}
-                      onRefresh={refreshDevices}
-                      onDeviceSelect={handleDeviceSelect}
-                      onRemove={removeDevice}
-                      onAddDevice={() => setShowManualConnect(true)}
-                    />
-                  </div>
-
-                  {/* Footer Hint */}
-                  <div className="mt-4 text-center text-text-muted text-sm">
-                    <p>{apkInfo ? t.selectDeviceToInstall : t.connectDevices}</p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+        <div className="flex-1 min-w-0 overflow-hidden relative">
+          {/* AgentTab is always mounted to keep the listener + agent state alive across tab switches */}
+          <div className={`absolute inset-0 px-8 py-6 overflow-hidden ${activeView === 'agent' && !selectedDevice ? '' : 'hidden'}`}>
+            <AgentTab
+              device={agentDevice}
+              devices={devices}
+              onDeviceChange={setAgentDevice}
+            />
           </div>
+
+          <AnimatePresence mode="wait">
+            {(activeView !== 'agent' || selectedDevice) && (
+              <motion.div
+                key={getViewKey()}
+                className="absolute inset-0 px-8 py-6 overflow-hidden"
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+              >
+                {selectedDevice ? (
+                  <DeviceDetailView device={selectedDevice} onBack={() => setSelectedDevice(null)} />
+                ) : activeView === 'settings' ? (
+                  <Settings onBack={() => setActiveView('devices')} />
+                ) : activeView === 'logcat' ? (
+                  <LogcatView />
+                ) : (
+                  <div className="h-full flex flex-col">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+                      <DeviceList
+                        devices={devices}
+                        loading={loading}
+                        error={error}
+                        onRefresh={refreshDevices}
+                        onDeviceSelect={handleDeviceSelect}
+                        onRemove={removeDevice}
+                        onAddDevice={() => setShowManualConnect(true)}
+                      />
+                    </div>
+                    <div className="mt-4 text-center text-text-muted text-sm">
+                      <p>Connect an Android device to get started</p>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* Modals */}
       {showManualConnect && <ManualConnectModal onClose={() => setShowManualConnect(false)} />}
     </div>
   );

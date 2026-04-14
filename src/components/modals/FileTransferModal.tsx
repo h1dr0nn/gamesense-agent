@@ -342,7 +342,7 @@ export function FileTransferModal({ deviceId, onClose }: FileTransferModalProps)
 
                     {/* New Folder Dialog */}
                     {showNewFolderDialog && (
-                        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center rounded-2xl">
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-2xl">
                             <div className="bg-surface-card border border-border rounded-xl p-6 w-80 shadow-xl">
                                 <h4 className="text-base font-semibold text-text-primary mb-4">{t.createFolder}</h4>
                                 <input
@@ -381,7 +381,7 @@ export function FileTransferModal({ deviceId, onClose }: FileTransferModalProps)
 
                     {/* Delete Confirmation */}
                     {showDeleteConfirm && selectedFile && (
-                        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center rounded-2xl">
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center rounded-2xl">
                             <div className="bg-surface-card border border-border rounded-xl p-6 w-80 shadow-xl">
                                 <div className="flex items-center gap-3 text-warning mb-4">
                                     <AlertTriangle size={24} />

@@ -1,5 +1,5 @@
 // Screen Capture Tab - Screenshot and Screen Recording
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import {
     Camera, Video, VideoOff, RefreshCw,
@@ -14,8 +14,24 @@ import { StreamPlayer } from './StreamPlayer';
 import { QuickActions } from './QuickActions';
 import { useLanguage } from '../../contexts/LanguageContext';
 
+function AgentCursorOverlay({ x, y }: { x: number; y: number; rippleKey: number }) {
+    return (
+        <div
+            className="absolute pointer-events-none z-20 w-4 h-4 rounded-full bg-accent/50"
+            style={{ left: `${x * 100}%`, top: `${y * 100}%`, transform: 'translate(-50%, -50%)' }}
+        />
+    );
+}
+
 interface ScreenCaptureProps {
     device: DeviceInfo;
+    compact?: boolean;
+    externalLive?: boolean;
+    externalTouch?: boolean;
+    externalShowFps?: boolean;
+    onLiveChange?: (live: boolean) => void;
+    /** Agent tap position (0–1 fractions). Re-keyed on each new tap to retrigger animation. */
+    agentCursor?: { x: number; y: number; key: number } | null;
 }
 
 interface CaptureResult {
@@ -32,7 +48,7 @@ interface ScrcpyStatus {
 
 type StreamMode = 'standard' | 'high-perf';
 
-export function ScreenCapture({ device }: ScreenCaptureProps) {
+export function ScreenCapture({ device, compact = false, externalLive, externalTouch, externalShowFps, onLiveChange, agentCursor }: ScreenCaptureProps) {
     const [isCapturing, setIsCapturing] = useState(false);
     const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
@@ -40,11 +56,22 @@ export function ScreenCapture({ device }: ScreenCaptureProps) {
 
     const [previewImage, setPreviewImage] = useState<string | null>(null);
     const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-    const [aspectRatio, setAspectRatio] = useState<number>(9 / 19.5); // Default modern phone ratio
+    const [aspectRatio, setAspectRatio] = useState<number>(() => {
+        const cached = localStorage.getItem(`screen_ratio_${device.id}`);
+        return cached ? parseFloat(cached) : 9 / 19.5;
+    });
     const [isLive, setIsLive] = useState(false);
     const [showFps, setShowFps] = useState(true);
     const [allowTouch, setAllowTouch] = useState(false);
     const [isMirroring, setIsMirroring] = useState(false);
+
+    // Sync external controls when in compact mode
+    useEffect(() => {
+        if (externalShowFps !== undefined) setShowFps(externalShowFps);
+    }, [externalShowFps]);
+    useEffect(() => {
+        if (externalTouch !== undefined) setAllowTouch(externalTouch);
+    }, [externalTouch]);
 
     const handleStopMirror = async () => {
         setIsMirroring(false);
@@ -126,8 +153,14 @@ export function ScreenCapture({ device }: ScreenCaptureProps) {
     const [streamMode, setStreamMode] = useState<StreamMode>('standard');
     const [scrcpyStatus, setScrcpyStatus] = useState<ScrcpyStatus | null>(null);
     const [isStartingScrcpy, setIsStartingScrcpy] = useState(false);
-    const [screenWidth, setScreenWidth] = useState(1080);
-    const [screenHeight, setScreenHeight] = useState(2340);
+    const [screenWidth, setScreenWidth] = useState(() => {
+        const cached = localStorage.getItem(`screen_w_${device.id}`);
+        return cached ? parseInt(cached) : 1080;
+    });
+    const [screenHeight, setScreenHeight] = useState(() => {
+        const cached = localStorage.getItem(`screen_h_${device.id}`);
+        return cached ? parseInt(cached) : 2340;
+    });
 
     // Fetch device aspect ratio and resolution
     useEffect(() => {
@@ -135,15 +168,17 @@ export function ScreenCapture({ device }: ScreenCaptureProps) {
             try {
                 const props = await invoke<{ screen_resolution: string | null }>('get_device_props', { deviceId: device.id });
                 if (props.screen_resolution) {
-                    // scrcpy server usually uses physical size (e.g. "Physical size: 1080x2340")
-                    const resMatch = props.screen_resolution.match(/(?:Physical|Override) size: (\d+)x(\d+)/);
+                    const resMatch = props.screen_resolution.match(/(\d+)x(\d+)/);
                     if (resMatch) {
                         const w = parseInt(resMatch[1]);
                         const h = parseInt(resMatch[2]);
-                        console.log(`[ScreenCapture] Device resolution detected: ${w}x${h}`);
-                        setAspectRatio(w / h);
+                        const ratio = w / h;
+                        setAspectRatio(ratio);
                         setScreenWidth(w);
                         setScreenHeight(h);
+                        localStorage.setItem(`screen_ratio_${device.id}`, String(ratio));
+                        localStorage.setItem(`screen_w_${device.id}`, String(w));
+                        localStorage.setItem(`screen_h_${device.id}`, String(h));
                     }
                 }
             } catch (e) {
@@ -405,6 +440,19 @@ export function ScreenCapture({ device }: ScreenCaptureProps) {
         }
     };
 
+    // Sync external live toggle
+    useEffect(() => {
+        if (externalLive === undefined) return;
+        const wantLive = externalLive;
+        const isLiveNow = streamMode === 'high-perf';
+        if (wantLive !== isLiveNow) toggleHighPerfMode();
+    }, [externalLive]);
+
+    // Notify parent of live state changes
+    useEffect(() => {
+        onLiveChange?.(streamMode === 'high-perf');
+    }, [streamMode]);
+
     // Scrcpy touch handler
     const handleScrcpyTouch = useCallback(async (x: number, y: number, action: 'down' | 'up' | 'move') => {
         if (!allowTouch) return;
@@ -440,6 +488,100 @@ export function ScreenCapture({ device }: ScreenCaptureProps) {
             console.error('Scroll failed:', error);
         }
     }, [device.id, allowTouch, screenWidth, screenHeight]);
+
+    // Ref to the inner video/image container — used to compute actual rendered image bounds
+    // so the agent cursor overlay is positioned relative to the image, not the black letterbox.
+    const videoContainerRef = useRef<HTMLDivElement>(null);
+
+    if (compact) {
+        return (
+            <div className="h-full flex items-center justify-center bg-surface-card rounded-xl border border-border p-4">
+                <div
+                    className={`bg-black rounded-xl shadow-2xl relative ${allowTouch ? 'cursor-pointer' : ''}`}
+                    style={{ height: '100%', aspectRatio: aspectRatio }}
+                    onClick={streamMode === 'standard' ? handleTouch : undefined}
+                >
+                    <div ref={videoContainerRef} className="absolute inset-0 rounded-xl overflow-hidden">
+                        {isMirroring ? (
+                            <div className="absolute inset-0 bg-black flex flex-col items-center justify-center text-center p-6 z-30">
+                                <motion.div
+                                    animate={{ opacity: [0.4, 1, 0.4] }}
+                                    transition={{ duration: 2, repeat: Infinity }}
+                                    className="flex flex-col items-center gap-4"
+                                >
+                                    <div className="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center">
+                                        <ExternalLink size={32} className="text-accent" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-white font-semibold mb-1">Mirroring Active</h3>
+                                        <p className="text-text-muted text-xs">Device screen is being projected to a dedicated window.</p>
+                                    </div>
+                                </motion.div>
+                            </div>
+                        ) : streamMode === 'high-perf' && scrcpyStatus?.port ? (
+                            <StreamPlayer
+                                deviceId={device.id}
+                                width={screenWidth}
+                                height={screenHeight}
+                                allowTouch={allowTouch}
+                                onVideoDimensions={(w, h) => {
+                                    setAspectRatio(w / h);
+                                    setScreenWidth(w);
+                                    setScreenHeight(h);
+                                }}
+                                onTouch={handleScrcpyTouch}
+                                onScroll={handleScrcpyScroll}
+                                showFps={showFps}
+                                windowLabel="main"
+                                allowKeyboard={true}
+                            />
+                        ) : previewImage ? (
+                            <img src={previewImage} alt="Preview" className="w-full h-full object-contain" />
+                        ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-text-muted">
+                                <Image size={40} className="opacity-30 mb-1" />
+                                <span className="text-xs opacity-50">{t.noSignal}</span>
+                            </div>
+                        )}
+
+                        {/* Agent cursor overlay — accounts for letterbox via image aspect ratio */}
+                        {agentCursor && (() => {
+                            const el = videoContainerRef.current;
+                            if (!el) return null;
+                            const cw = el.clientWidth;
+                            const ch = el.clientHeight;
+                            // Compute actual rendered image area (object-contain letterboxing)
+                            const imgRatio = screenWidth / screenHeight;
+                            const containerRatio = cw / ch;
+                            let imgW: number, imgH: number, offsetX: number, offsetY: number;
+                            if (imgRatio < containerRatio) {
+                                // pillarbox — image height fills, width is smaller
+                                imgH = ch;
+                                imgW = ch * imgRatio;
+                                offsetX = (cw - imgW) / 2;
+                                offsetY = 0;
+                            } else {
+                                // letterbox — image width fills, height is smaller
+                                imgW = cw;
+                                imgH = cw / imgRatio;
+                                offsetX = 0;
+                                offsetY = (ch - imgH) / 2;
+                            }
+                            const px = offsetX + agentCursor.x * imgW;
+                            const py = offsetY + agentCursor.y * imgH;
+                            return (
+                                <AgentCursorOverlay
+                                    x={px / cw}
+                                    y={py / ch}
+                                    rippleKey={agentCursor.key}
+                                />
+                            );
+                        })()}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="h-full flex gap-4">
