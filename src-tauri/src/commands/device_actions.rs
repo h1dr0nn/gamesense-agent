@@ -116,6 +116,51 @@ pub fn input_tap(device_id: String, x: i32, y: i32) -> Result<(), AppError> {
     Ok(())
 }
 
+/// Input swipe from one point to another
+#[tauri::command]
+pub fn input_swipe(
+    device_id: String,
+    x1: i32,
+    y1: i32,
+    x2: i32,
+    y2: i32,
+    duration_ms: u32,
+) -> Result<(), AppError> {
+    let executor = AdbExecutor::new();
+    let adb_path = executor.get_adb_path();
+
+    let output = hidden_command(adb_path)
+        .args([
+            "-s",
+            &device_id,
+            "shell",
+            "input",
+            "swipe",
+            &x1.to_string(),
+            &y1.to_string(),
+            &x2.to_string(),
+            &y2.to_string(),
+            &duration_ms.to_string(),
+        ])
+        .output()
+        .map_err(|e| {
+            AppError::new(
+                "INPUT_SWIPE_FAILED",
+                &format!("Failed to input swipe: {}", e),
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AppError::new(
+            "INPUT_SWIPE_FAILED",
+            &format!("Input swipe failed: {}", stderr),
+        ));
+    }
+
+    Ok(())
+}
+
 /// Set system UI night mode (Dark Mode)
 #[tauri::command]
 pub fn set_dark_mode(device_id: String, enabled: bool) -> Result<(), AppError> {
@@ -200,4 +245,67 @@ pub fn set_animations(device_id: String, scale: f32) -> Result<(), AppError> {
     }
 
     Ok(())
+}
+
+/// Get the package name of the currently focused (foreground) app
+#[tauri::command]
+pub fn get_foreground_app(device_id: String) -> Result<String, AppError> {
+    let executor = AdbExecutor::new();
+    let adb_path = executor.get_adb_path();
+
+    // Use dumpsys window which is faster and more reliable
+    let output = hidden_command(adb_path)
+        .args(["-s", &device_id, "shell",
+            "dumpsys", "window", "windows"])
+        .output()
+        .map_err(|e| AppError::new("FOREGROUND_FAILED", &format!("Failed to get foreground app: {}", e)))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Parse mCurrentFocus or mFocusedApp lines
+    for line in stdout.lines() {
+        if (line.contains("mCurrentFocus") || line.contains("mFocusedApp")) && line.contains('/') {
+            if let Some(pkg_part) = line.split_whitespace().find(|s| s.contains('/')) {
+                if let Some(pkg) = pkg_part.split('/').next() {
+                    let pkg = pkg.trim_matches('{').trim_matches('}');
+                    if !pkg.is_empty() && pkg.contains('.') {
+                        return Ok(pkg.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(String::new())
+}
+
+/// Get the human-readable display name of an app by package name.
+/// Returns the package name itself if the label cannot be determined.
+#[tauri::command]
+pub fn get_app_label(device_id: String, package_name: String) -> Result<String, AppError> {
+    let executor = AdbExecutor::new();
+    let adb_path = executor.get_adb_path();
+
+    // `cmd package resolve-activity --brief -a android.intent.action.MAIN <pkg>` is unreliable.
+    // `dumpsys package <pkg>` contains a line like:
+    //   nonLocalizedLabel=Pocket Sort: Coin Puzzle
+    // which is the fastest reliable way to get the display name over ADB.
+    let output = hidden_command(adb_path)
+        .args(["-s", &device_id, "shell", "dumpsys", "package", &package_name])
+        .output()
+        .map_err(|e| AppError::new("APP_LABEL_FAILED", &format!("dumpsys failed: {}", e)))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if let Some(val) = trimmed.strip_prefix("nonLocalizedLabel=") {
+            let label = val.trim();
+            if !label.is_empty() && label != "null" {
+                return Ok(label.to_string());
+            }
+        }
+    }
+
+    // Fallback: return package name unchanged
+    Ok(package_name)
 }

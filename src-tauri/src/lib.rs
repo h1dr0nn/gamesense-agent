@@ -2,6 +2,7 @@
 // Entry point for the Tauri application
 
 pub mod adb;
+pub mod agent;
 pub mod apk;
 pub mod command_utils;
 pub mod commands;
@@ -12,6 +13,7 @@ pub mod services;
 pub mod test_utils;
 
 use adb::{start_device_tracker, AdbExecutor};
+use agent::loop_runner::{get_agent_state, start_agent, stop_agent, AgentSharedState};
 use commands::logcat::LogcatState;
 use commands::{
     build_index,
@@ -44,6 +46,7 @@ use commands::{
     get_screen_frame,
     grant_all_permissions,
     inject_tap_fast,
+    input_swipe,
     input_tap,
     input_text,
     install_apk,
@@ -57,6 +60,8 @@ use commands::{
     push_file,
     read_scrcpy_frame,
     // Device Actions
+    get_foreground_app,
+    get_app_label,
     reboot_device,
     refresh_devices,
     request_scrcpy_sync,
@@ -97,6 +102,7 @@ pub fn run() {
         .setup(|app| {
             // Manage state
             app.manage(LogcatState::new());
+            app.manage(AgentSharedState::new());
 
             // Start real-time device tracking
             start_device_tracker(app.handle().clone());
@@ -115,9 +121,12 @@ pub fn run() {
             install_apk,
             scan_apks_in_folder,
             // Device Actions
+            get_foreground_app,
+            get_app_label,
             reboot_device,
             input_text,
             input_tap,
+            input_swipe,
             uninstall_app,
             list_packages,
             get_device_props,
@@ -174,6 +183,10 @@ pub fn run() {
             inject_tap_fast,
             build_index,
             search_files_fast,
+            // Agent
+            start_agent,
+            stop_agent,
+            get_agent_state,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
