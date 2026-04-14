@@ -101,3 +101,56 @@ export interface FileInfo {
   permissions: string | null;
 }
 
+// Agent types
+export type AgentStatus =
+  | 'Idle'
+  | 'Observing'
+  | 'Thinking'
+  | 'Acting'
+  | 'Waiting'
+  | 'Won'
+  | 'GameOver'
+  | 'Error'
+  | 'Stopped';
+
+export interface AgentConfig {
+  device_id: string;
+  api_key: string;
+  model: string;
+  max_steps: number;
+  delay_between_moves: number;
+  screen_width: number;
+  screen_height: number;
+  base_url?: string;
+  vault_path?: string;
+  /** Human-readable game name used in the prompt (e.g. "Pocket Sort: Coin Puzzle") */
+  game_name: string;
+  /** Package name used as vault folder key (e.g. "com.pocket.sort.coin.puzzle.game") */
+  game_id: string;
+}
+
+export interface AgentMove {
+  step: number;
+  action: string;
+  reasoning: string;
+  confidence: number;
+  timestamp: number;
+  score: number;
+}
+
+export interface GameState {
+  grid: number[][];
+  score: number;
+  status: string;
+}
+
+export interface AgentStateSnapshot {
+  status: AgentStatus;
+  step: number;
+  history: AgentMove[];
+  last_reasoning: string;
+  game_state: GameState | null;
+  error_message: string | null;
+  last_action: string | null;
+}
+
